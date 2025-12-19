@@ -1,19 +1,22 @@
 import SwiftUI
 
+// 应用管理视图：提供批量隐藏、分类设置和文件夹管理功能
 struct ManagementView: View {
     @ObservedObject var discovery: AppDiscovery
     @ObservedObject var settings = SettingsManager.shared
-    @State private var selection = Set<String>()
-    @State private var searchText = ""
-    @State private var showFolderSheet = false
-    @State private var newFolderName = ""
-    @State private var selectedCategory = "All"
+    @State private var selection = Set<String>()     // 当前选中的应用 ID 集合
+    @State private var searchText = ""               // 搜索文本
+    @State private var showFolderSheet = false       // 是否显示新建文件夹弹窗
+    @State private var newFolderName = ""            // 新文件夹名称
+    @State private var selectedCategory = "All"      // 当前选中的分类过滤项
     
+    // 获取所有已存在的分类列表
     var categories: [String] {
         let allCategories = Set(discovery.apps.compactMap { $0.category })
         return ["All"] + Array(allCategories).sorted()
     }
     
+    // 根据搜索和分类过滤后的应用列表
     var filteredApps: [AppInfo] {
         discovery.apps.filter { app in
             let matchesSearch = searchText.isEmpty || app.name.localizedCaseInsensitiveContains(searchText)
@@ -24,12 +27,14 @@ struct ManagementView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar
+            // 顶部工具栏
             HStack {
+                // 搜索框
                 TextField("Search apps...", text: $searchText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .frame(width: 200)
                 
+                // 分类过滤器
                 Picker("Category", selection: $selectedCategory) {
                     ForEach(categories, id: \.self) { cat in
                         Text(cat).tag(cat)
@@ -39,11 +44,13 @@ struct ManagementView: View {
                 
                 Spacer()
                 
+                // 创建文件夹按钮
                 Button("Create Folder") {
                     showFolderSheet = true
                 }
                 .disabled(selection.isEmpty)
                 
+                // 移动到现有文件夹菜单
                 Menu("Move to Folder") {
                     ForEach(discovery.folders) { folder in
                         Button(folder.name) {
@@ -54,6 +61,7 @@ struct ManagementView: View {
                 }
                 .disabled(selection.isEmpty || discovery.folders.isEmpty)
                 
+                // 设置分类菜单
                 Menu("Set Category") {
                     Button("New Category...") {
                         showCategoryAlert()
@@ -70,6 +78,7 @@ struct ManagementView: View {
                 }
                 .disabled(selection.isEmpty)
                 
+                // 批量隐藏按钮
                 Button("Hide Selected") {
                     batchHide()
                 }
@@ -78,7 +87,7 @@ struct ManagementView: View {
             .padding()
             .background(Color(NSColor.windowBackgroundColor))
             
-            // App List
+            // 应用列表（支持多选）
             List(filteredApps, selection: $selection) { app in
                 HStack {
                     AsyncIconView(path: app.path)
@@ -91,6 +100,7 @@ struct ManagementView: View {
                     
                     Spacer()
                     
+                    // 显示当前分类标签
                     if let category = app.category {
                         Text(category)
                             .font(.caption)
@@ -100,6 +110,7 @@ struct ManagementView: View {
                             .cornerRadius(5)
                     }
                     
+                    // 显示当前所属文件夹标签
                     if let folderId = app.folderId, let folder = discovery.folders.first(where: { $0.id == folderId }) {
                         Text(folder.name)
                             .font(.caption)
@@ -111,7 +122,7 @@ struct ManagementView: View {
                 }
             }
             
-            // Footer
+            // 底部状态栏
             HStack {
                 Text("\(selection.count) apps selected")
                 Spacer()
@@ -123,6 +134,7 @@ struct ManagementView: View {
         }
         .frame(minWidth: 800, minHeight: 500)
         .sheet(isPresented: $showFolderSheet) {
+            // 新建文件夹弹窗
             VStack {
                 Text("Create New Folder").font(.headline)
                 TextField("Folder Name", text: $newFolderName)
@@ -142,6 +154,7 @@ struct ManagementView: View {
         }
     }
     
+    // 批量隐藏选中的应用
     private func batchHide() {
         for id in selection {
             if let app = discovery.apps.first(where: { $0.id == id }) {
@@ -151,6 +164,7 @@ struct ManagementView: View {
         selection.removeAll()
     }
     
+    // 批量设置选中应用的分类
     private func batchSetCategory(_ category: String?) {
         for id in selection {
             if let app = discovery.apps.first(where: { $0.id == id }), let bundleId = app.bundleIdentifier {
@@ -161,6 +175,7 @@ struct ManagementView: View {
         discovery.scan(force: true)
     }
     
+    // 显示输入新分类名称的系统弹窗
     private func showCategoryAlert() {
         let alert = NSAlert()
         alert.messageText = "New Category"
@@ -178,6 +193,7 @@ struct ManagementView: View {
         }
     }
     
+    // 根据当前选中的应用创建新文件夹
     private func createFolderFromSelection() {
         let selectedApps = discovery.apps.filter { selection.contains($0.id) }
         guard !selectedApps.isEmpty else { return }

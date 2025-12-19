@@ -1,15 +1,18 @@
 import SwiftUI
 
+// Launchpad 主视图
 struct LaunchpadView: View {
-    @StateObject var discovery = AppDiscovery()
-    @ObservedObject var settings = SettingsManager.shared
-    @State private var searchText = ""
-    @State private var showSettings = false
+    @StateObject var discovery = AppDiscovery()      // 应用发现逻辑
+    @ObservedObject var settings = SettingsManager.shared // 用户设置
+    @State private var searchText = ""               // 搜索文本
+    @State private var showSettings = false          // 是否显示设置弹窗
     
+    // 网格布局定义：自适应宽度，最小 100，最大 120
     let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 20)
     ]
     
+    // 根据搜索文本过滤后的显示项
     var filteredItems: [LaunchpadItem] {
         if searchText.isEmpty {
             return discovery.gridItems
@@ -20,27 +23,38 @@ struct LaunchpadView: View {
     
     var body: some View {
         ZStack {
-            // Background Layer
+            // 背景层
             Group {
                 if !settings.backgroundImagePath.isEmpty, let image = NSImage(contentsOfFile: settings.backgroundImagePath) {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
+                    // 默认使用系统毛玻璃效果
                     VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
                 }
             }
             .ignoresSafeArea()
-            .overlay(Color.black.opacity(1.0 - settings.backgroundOpacity))
-            .blur(radius: settings.backgroundBlur)
+            .overlay(Color.black.opacity(1.0 - settings.backgroundOpacity)) // 叠加透明度层
+            .blur(radius: settings.backgroundBlur)                         // 背景模糊
             
             VStack(spacing: 0) {
-                // Top Bar
+                // 顶部状态栏
                 HStack {
+                    // 退出按钮
+                    Button(action: { NSApp.terminate(nil) }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(settings.textColor.opacity(0.5))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.leading)
+                    .help("Quit App")
+                    
                     Spacer()
                     
                     HStack(spacing: 15) {
-                        // Search Bar (Shortened)
+                        // 搜索框
                         HStack {
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(.secondary)
@@ -48,21 +62,21 @@ struct LaunchpadView: View {
                                 .textFieldStyle(PlainTextFieldStyle())
                                 .font(.title3)
                         }
-                        .padding(8)
+                        .padding(6)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(10)
                         .frame(maxWidth: 300)
                         
-                        // Refresh Button
+                        // 刷新按钮
                         Button(action: { discovery.scan(force: true) }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.title2)
+                                .font(.title3)
                                 .foregroundColor(settings.textColor)
                         }
                         .buttonStyle(PlainButtonStyle())
                         .help("Refresh App List")
                         
-                        // Management Button
+                        // 管理按钮：打开独立的应用管理窗口
                         Button(action: { openManagementWindow() }) {
                             HStack(spacing: 4) {
                                 Image(systemName: "list.bullet.circle.fill")
@@ -78,10 +92,10 @@ struct LaunchpadView: View {
                         .buttonStyle(PlainButtonStyle())
                         .help("Open App Management")
                         
-                        // Settings Button
+                        // 设置按钮：显示气泡弹窗
                         Button(action: { showSettings.toggle() }) {
                             Image(systemName: "gearshape.fill")
-                                .font(.title2)
+                                .font(.title3)
                                 .foregroundColor(settings.textColor)
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -93,41 +107,61 @@ struct LaunchpadView: View {
                     }
                     
                     Spacer()
+                    
+                    // 占位符，保持顶部栏左右平衡
+                    Color.clear.frame(width: 40, height: 50)
                 }
-                .padding()
+                .padding(.top, 10)
+                .padding(.horizontal)
+                .padding(.bottom, 5)
                 
+                // 内容区域
                 if discovery.isLoading {
                     Spacer()
                     ProgressView("Loading Apps...")
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 30) {
-                            ForEach(filteredItems) { item in
-                                switch item {
-                                case .app(let app):
-                                    AppIconView(app: app, textColor: settings.textColor, onHide: {
-                                        discovery.hide(app: app)
-                                    }) {
-                                        discovery.launch(app: app)
+                        VStack(alignment: .leading, spacing: 0) {
+                            // 应用网格
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 20)], spacing: 40) {
+                                ForEach(filteredItems) { item in
+                                    switch item {
+                                    case .app(let app):
+                                        AppIconView(app: app, textColor: settings.textColor, onHide: {
+                                            discovery.hide(app: app)
+                                        }) {
+                                            discovery.launch(app: app)
+                                        }
+                                        
+                                    case .folder(let folder):
+                                        FolderIconView(folder: folder, textColor: settings.textColor, discovery: discovery)
                                     }
-                                    
-                                case .folder(let folder):
-                                    FolderIconView(folder: folder, textColor: settings.textColor, discovery: discovery)
                                 }
                             }
+                            .padding(.horizontal, 40)
+                            .padding(.top, 0)
+                            .padding(.bottom, 60)
+                            
+                            Spacer(minLength: 0)
                         }
-                        .padding(30)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 }
+                
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea()
         }
         .onAppear {
-            discovery.scan()
+            discovery.scan() // 视图出现时开始扫描应用
         }
     }
     
+    // 打开应用管理窗口
     private func openManagementWindow() {
+        // 如果窗口已打开，则将其置于最前
         if let existingWindow = NSApp.windows.first(where: { $0.title == "App Management" }) {
             existingWindow.makeKeyAndOrderFront(nil)
             return
@@ -142,26 +176,25 @@ struct LaunchpadView: View {
         window.title = "App Management"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: managementView)
+        window.level = .mainMenu + 2
         window.makeKeyAndOrderFront(nil)
     }
 }
 
-// Remove AppDropDelegate as it's no longer used
-
-
+// 文件夹图标视图
 struct FolderIconView: View {
     let folder: FolderInfo
     let textColor: Color
     let discovery: AppDiscovery
-    @State private var isHovered = false
-    @State private var isExpanded = false
-    @State private var isRenaming = false
-    @State private var newName = ""
+    @State private var isHovered = false         // 鼠标悬停状态
+    @State private var isExpanded = false        // 是否展开文件夹详情
+    @State private var isRenaming = false        // 是否正在重命名
+    @State private var newName = ""              // 新名称
     
     var body: some View {
         Button(action: { isExpanded.toggle() }) {
             VStack {
-                // Folder Icon (Mini grid)
+                // 文件夹图标（九宫格预览）
                 ZStack {
                     RoundedRectangle(cornerRadius: 15)
                         .fill(Color.white.opacity(0.2))
@@ -188,6 +221,7 @@ struct FolderIconView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
+            // 右键菜单
             Button("Rename Folder") {
                 newName = folder.name
                 isRenaming = true
@@ -209,11 +243,13 @@ struct FolderIconView: View {
             }
         }
         .sheet(isPresented: $isExpanded) {
+            // 展开文件夹详情视图
             FolderDetailView(folder: folder, discovery: discovery, textColor: textColor)
         }
     }
 }
 
+// 文件夹详情视图（点击文件夹后显示的弹窗）
 struct FolderDetailView: View {
     let folder: FolderInfo
     @ObservedObject var discovery: AppDiscovery
@@ -260,6 +296,7 @@ struct FolderDetailView: View {
     }
 }
 
+// 设置视图
 struct SettingsView: View {
     @ObservedObject var settings: SettingsManager
     @ObservedObject var discovery: AppDiscovery
@@ -272,13 +309,16 @@ struct SettingsView: View {
             Divider()
             
             Group {
+                // 颜色选择器
                 ColorPicker("Text Color", selection: $settings.textColor)
                 
+                // 背景透明度调节
                 VStack(alignment: .leading) {
                     Text("Background Opacity: \(settings.backgroundOpacity, specifier: "%.2f")")
                     Slider(value: $settings.backgroundOpacity, in: 0...1)
                 }
                 
+                // 背景模糊度调节
                 VStack(alignment: .leading) {
                     Text("Background Blur: \(settings.backgroundBlur, specifier: "%.0f")")
                     Slider(value: $settings.backgroundBlur, in: 0...50)
@@ -287,6 +327,7 @@ struct SettingsView: View {
             
             Divider()
             
+            // 背景图片路径设置
             VStack(alignment: .leading) {
                 Text("Background Image Path")
                 HStack {
@@ -300,6 +341,7 @@ struct SettingsView: View {
             
             Divider()
             
+            // 已隐藏应用列表
             VStack(alignment: .leading) {
                 Text("Hidden Apps")
                     .font(.subheadline).bold()
@@ -332,6 +374,7 @@ struct SettingsView: View {
     }
 }
 
+// 单个应用图标视图
 struct AppIconView: View {
     let app: AppInfo
     let textColor: Color
@@ -369,6 +412,7 @@ struct AppIconView: View {
     }
 }
 
+// macOS 毛玻璃效果包装类
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode

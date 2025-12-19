@@ -19,4 +19,3 @@ for dir in appDirs {
         print("Error scanning \(dir): \(error)")
     }
 }
-test_apps.swift 这个文件是干啥的
