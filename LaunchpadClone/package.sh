@@ -22,8 +22,11 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
-echo "📄 Copying executable..."
+echo "📄 Copying executable and resources..."
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/"
+if [ -f "Resources/AppIcon.icns" ]; then
+    cp "Resources/AppIcon.icns" "$RESOURCES_DIR/"
+fi
 
 echo "📝 Creating Info.plist..."
 cat <<EOF > "$CONTENTS_DIR/Info.plist"
@@ -37,6 +40,8 @@ cat <<EOF > "$CONTENTS_DIR/Info.plist"
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
     <string>$APP_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
