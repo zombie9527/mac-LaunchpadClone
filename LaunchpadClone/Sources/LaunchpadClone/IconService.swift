@@ -36,9 +36,9 @@ struct AsyncIconView: View {
     }
     
     private func loadIcon() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             let loadedIcon = IconService.shared.icon(for: path)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.icon = loadedIcon
             }
         }

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct LaunchpadView: View {
     @StateObject var discovery = AppDiscovery()
-    @StateObject var settings = SettingsManager.shared
+    @ObservedObject var settings = SettingsManager.shared
     @State private var searchText = ""
     @State private var showSettings = false
     
@@ -10,11 +10,11 @@ struct LaunchpadView: View {
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 20)
     ]
     
-    var filteredApps: [AppInfo] {
+    var filteredItems: [LaunchpadItem] {
         if searchText.isEmpty {
-            return discovery.apps
+            return discovery.gridItems
         } else {
-            return discovery.apps.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+            return discovery.gridItems.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
         }
     }
     
@@ -37,30 +37,62 @@ struct LaunchpadView: View {
             VStack(spacing: 0) {
                 // Top Bar
                 HStack {
-                    // Search Bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
-                        TextField("Search", text: $searchText)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .font(.title3)
-                    }
-                    .padding(8)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(10)
+                    Spacer()
                     
-                    // Settings Button
-                    Button(action: { showSettings.toggle() }) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.title2)
+                    HStack(spacing: 15) {
+                        // Search Bar (Shortened)
+                        HStack {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.secondary)
+                            TextField("Search", text: $searchText)
+                                .textFieldStyle(PlainTextFieldStyle())
+                                .font(.title3)
+                        }
+                        .padding(8)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(10)
+                        .frame(maxWidth: 300)
+                        
+                        // Refresh Button
+                        Button(action: { discovery.scan(force: true) }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.title2)
+                                .foregroundColor(settings.textColor)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .help("Refresh App List")
+                        
+                        // Management Button
+                        Button(action: { openManagementWindow() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "list.bullet.circle.fill")
+                                Text("Manage")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(8)
                             .foregroundColor(settings.textColor)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .help("Open App Management")
+                        
+                        // Settings Button
+                        Button(action: { showSettings.toggle() }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.title2)
+                                .foregroundColor(settings.textColor)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .popover(isPresented: $showSettings) {
+                            SettingsView(settings: settings, discovery: discovery)
+                                .frame(width: 300)
+                                .padding()
+                        }
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .popover(isPresented: $showSettings) {
-                        SettingsView(settings: settings)
-                            .frame(width: 300)
-                            .padding()
-                    }
+                    
+                    Spacer()
                 }
                 .padding()
                 
@@ -71,9 +103,17 @@ struct LaunchpadView: View {
                 } else {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 30) {
-                            ForEach(filteredApps) { app in
-                                AppIconView(app: app, textColor: settings.textColor) {
-                                    discovery.launch(app: app)
+                            ForEach(filteredItems) { item in
+                                switch item {
+                                case .app(let app):
+                                    AppIconView(app: app, textColor: settings.textColor, onHide: {
+                                        discovery.hide(app: app)
+                                    }) {
+                                        discovery.launch(app: app)
+                                    }
+                                    
+                                case .folder(let folder):
+                                    FolderIconView(folder: folder, textColor: settings.textColor, discovery: discovery)
                                 }
                             }
                         }
@@ -83,14 +123,146 @@ struct LaunchpadView: View {
             }
         }
         .onAppear {
-            print("LaunchpadView appeared.")
             discovery.scan()
         }
+    }
+    
+    private func openManagementWindow() {
+        if let existingWindow = NSApp.windows.first(where: { $0.title == "App Management" }) {
+            existingWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        
+        let managementView = ManagementView(discovery: discovery)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered, defer: false)
+        window.center()
+        window.title = "App Management"
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: managementView)
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+// Remove AppDropDelegate as it's no longer used
+
+
+struct FolderIconView: View {
+    let folder: FolderInfo
+    let textColor: Color
+    let discovery: AppDiscovery
+    @State private var isHovered = false
+    @State private var isExpanded = false
+    @State private var isRenaming = false
+    @State private var newName = ""
+    
+    var body: some View {
+        Button(action: { isExpanded.toggle() }) {
+            VStack {
+                // Folder Icon (Mini grid)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 80, height: 80)
+                    
+                    let appsInFolder = discovery.apps.filter { folder.appIds.contains($0.id) }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                        ForEach(appsInFolder.prefix(9)) { app in
+                            AsyncIconView(path: app.path)
+                                .frame(width: 18, height: 18)
+                        }
+                    }
+                    .padding(8)
+                }
+                .shadow(radius: isHovered ? 10 : 2)
+                .scaleEffect(isHovered ? 1.05 : 1.0)
+                
+                Text(folder.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                    .frame(maxWidth: 100)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button("Rename Folder") {
+                newName = folder.name
+                isRenaming = true
+            }
+            Button("Delete Folder", role: .destructive) {
+                discovery.deleteFolder(folderId: folder.id)
+            }
+        }
+        .alert("Rename Folder", isPresented: $isRenaming) {
+            TextField("New Name", text: $newName)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") {
+                discovery.renameFolder(folderId: folder.id, newName: newName)
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.spring()) {
+                isHovered = hovering
+            }
+        }
+        .sheet(isPresented: $isExpanded) {
+            FolderDetailView(folder: folder, discovery: discovery, textColor: textColor)
+        }
+    }
+}
+
+struct FolderDetailView: View {
+    let folder: FolderInfo
+    @ObservedObject var discovery: AppDiscovery
+    let textColor: Color
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        VStack {
+            HStack {
+                Text(folder.name)
+                    .font(.title).bold()
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.return)
+            }
+            .padding()
+            
+            let appsInFolder = discovery.apps.filter { folder.appIds.contains($0.id) }
+            
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 20)], spacing: 30) {
+                    ForEach(appsInFolder) { app in
+                        AppIconView(app: app, textColor: .white, onHide: {
+                            discovery.hide(app: app)
+                        }) {
+                            discovery.launch(app: app)
+                            dismiss()
+                        }
+                        .contextMenu {
+                            Button("Remove from Folder") {
+                                discovery.removeFromFolder(appId: app.id, folderId: folder.id)
+                            }
+                            Button("Hide App") {
+                                discovery.hide(app: app)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+        .frame(minWidth: 600, minHeight: 400)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
     }
 }
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsManager
+    @ObservedObject var discovery: AppDiscovery
     
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -99,17 +271,21 @@ struct SettingsView: View {
             
             Divider()
             
-            ColorPicker("Text Color", selection: $settings.textColor)
-            
-            VStack(alignment: .leading) {
-                Text("Background Opacity: \(settings.backgroundOpacity, specifier: "%.2f")")
-                Slider(value: $settings.backgroundOpacity, in: 0...1)
+            Group {
+                ColorPicker("Text Color", selection: $settings.textColor)
+                
+                VStack(alignment: .leading) {
+                    Text("Background Opacity: \(settings.backgroundOpacity, specifier: "%.2f")")
+                    Slider(value: $settings.backgroundOpacity, in: 0...1)
+                }
+                
+                VStack(alignment: .leading) {
+                    Text("Background Blur: \(settings.backgroundBlur, specifier: "%.0f")")
+                    Slider(value: $settings.backgroundBlur, in: 0...50)
+                }
             }
             
-            VStack(alignment: .leading) {
-                Text("Background Blur: \(settings.backgroundBlur, specifier: "%.0f")")
-                Slider(value: $settings.backgroundBlur, in: 0...50)
-            }
+            Divider()
             
             VStack(alignment: .leading) {
                 Text("Background Image Path")
@@ -122,7 +298,34 @@ struct SettingsView: View {
                 }
             }
             
-            Text("Tip: You can drag an image file here to get its path (if supported) or paste the full path.")
+            Divider()
+            
+            VStack(alignment: .leading) {
+                Text("Hidden Apps")
+                    .font(.subheadline).bold()
+                
+                if settings.hiddenAppBundleIds.isEmpty {
+                    Text("No hidden apps").font(.caption).foregroundColor(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading) {
+                            ForEach(Array(settings.hiddenAppBundleIds).sorted(), id: \.self) { bundleId in
+                                HStack {
+                                    Text(bundleId).font(.caption).lineLimit(1)
+                                    Spacer()
+                                    Button("Restore") {
+                                        discovery.unhide(bundleId: bundleId)
+                                    }
+                                    .buttonStyle(LinkButtonStyle())
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 100)
+                }
+            }
+            
+            Text("Tip: Right-click an app to hide it.")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -132,6 +335,7 @@ struct SettingsView: View {
 struct AppIconView: View {
     let app: AppInfo
     let textColor: Color
+    let onHide: () -> Void
     let action: () -> Void
     @State private var isHovered = false
     
@@ -152,6 +356,11 @@ struct AppIconView: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button("Hide App") {
+                onHide()
+            }
+        }
         .onHover { hovering in
             withAnimation(.spring()) {
                 isHovered = hovering
